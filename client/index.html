@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wTerm</title>
+  <link rel="stylesheet" href="xterm/css/xterm.css">
+  <script src="xterm/lib/xterm.js"></script>
+  <script src="xterm-addon-attach/lib/xterm-addon-attach.js"></script>
+  <script src="xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+  <style>
+    html, body, .terminal {
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      margin: 0;
+    }
+
+    body {
+      position: relative;
+      background-color: black;
+    }
+
+    .dialog {
+      position: absolute;
+      background: white;
+      left: 50%;
+      top: 40%;
+      -webkit-transform: translate(-50%, -50%);
+      transform: translate(-50%, -50%);
+      width: 273px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 24px;
+    }
+
+    input, button {
+      display: block;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+      outline: none;
+      border-radius: 4px;
+      border: 1px solid #999;
+      text-align: center;
+      width: 240px;
+      font-size: 20px;
+      padding: 8px;
+      margin: 16px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="terminal" class="terminal"></div>
+  <form id="dialog" class="dialog">
+    <input id="secret" type="password" placeholder="SECRET"/>
+    <input id="connect" type="submit" value="CONNECT" />
+  </form>
+  <script>
+    document.getElementById('secret').focus();
+
+    document.getElementById('connect').onclick = function (event) {
+      event.preventDefault();
+
+      var secret = document.getElementById('secret').value;
+
+      document.getElementById('dialog').remove();
+      window.connect = undefined;
+
+      var terminal = new Terminal({
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontWeight: 400,
+        fontSize: 14,
+        rows: 24,
+      });
+      terminal.open(document.getElementById('terminal'));
+      terminal.focus();
+
+      var alink = document.createElement('a');
+      alink.href = 'terminals';
+
+      var socket = new WebSocket(alink.href.replace('http', 'ws'));
+      socket.onerror = function () {
+        terminal.write('\r\nWebSocket error occurred!\r\n');
+      }
+
+      socket.onopen = function () {
+        socket.send('wtc:auth(' + secret + ');');
+      }
+
+      socket.onmessage = function (evt) {
+        if (evt.data != 'wtc:init();')
+          return;
+
+        socket.onmessage = undefined;
+        var attach = new AttachAddon.AttachAddon(socket);
+        terminal.loadAddon(attach);
+        var fit = new FitAddon.FitAddon();
+        terminal.loadAddon(fit);
+
+        window.onresize = function () {
+          fit.fit();
+        }
+
+        terminal.onResize(function (size) {
+          if (!socket || size.rows < 3)
+            return;
+          socket.send('wtc:resize(' + size.cols + ',' + size.rows + ');');
+        });
+
+        fit.fit();
+      }
+
+      socket.onclose = function (evt) {
+        terminal.write('\r\nConnection closed!\r\n');
+      }
+    }
+  </script>
+</body>
+
+</html>
