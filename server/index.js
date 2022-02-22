@@ -52,8 +52,10 @@ module.exports = class Server {
           }
         }
 
+        let name = this.config.term || 'xterm-color';
+
         term = this.termMap[sequence] = pty.spawn(shell, args, {
-          name: "wTerm",
+          name: name,
           cols: 80,
           rows: 24,
           cwd: process.env.HOME,
@@ -88,7 +90,7 @@ module.exports = class Server {
 
   async listen() {
     try {
-      console.log(new Date(), 'wTerm V0.1.0');
+      console.log(new Date(), 'wTerm V0.1.1');
       console.log(new Date(), 'https://github.com/iwares/wterm');
       let host = this.config.host;
       let port = this.config.port;
