@@ -30,13 +30,13 @@ module.exports = class Server {
 
       socket.on('message', (message) => {
         if (term) {
-          var matches = message.match(/^wtc:resize\((\d+),(\d+)\);$/);
+          var matches = message.match && message.match(/^wtc:resize\((\d+),(\d+)\);$/);
           if (matches)
             return term.resize(parseInt(matches[1]), parseInt(matches[2]));
           return term.write(message);
         }
 
-        var matches = message.match(/^wtc:auth\((.*)\);$/);
+        var matches = message.match && message.match(/^wtc:auth\((.*)\);$/);
         if (!matches || matches[1] != this.config.secret)
           return socket.close();
 
