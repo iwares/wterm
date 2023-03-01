@@ -1,8 +1,11 @@
 const express = require('express');
 const expressws = require('express-ws');
 const path = require('path');
+const fs = require('fs/promises');
 const pty = require('node-pty');
 const os = require("os");
+const twofactor = require('two-factor');
+const qrimage = require('qr-image');
 
 module.exports = class Server {
 
@@ -37,7 +40,7 @@ module.exports = class Server {
         }
 
         var matches = message.match && message.match(/^wtc:auth\((.*)\);$/);
-        if (!matches || matches[1] != this.config.secret)
+        if (!matches || !this.auth(matches[1]))
           return socket.close();
 
         let shell = this.config.shell;
@@ -88,10 +91,46 @@ module.exports = class Server {
 
   }
 
+  async loadTOTPKey() {
+    try {
+      let svg = await fs.readFile('totp-key.svg', 'utf-8');
+      let matches = svg.match(/<!-- wTerm TOTP Key: (.+) -->/);
+      return matches && matches[1];
+    } catch (e) {
+      return undefined;
+    }
+  }
+
+  async generateTOTPKey() {
+    let key = twofactor.generate.key();
+    let uri = 'otpauth://totp/' + encodeURIComponent(this.config.name || 'anonymous')
+      + '?secret=' + encodeURIComponent(key)
+      + '&issuer=' + encodeURIComponent('wTerm');
+    let svg = '<!-- wTerm TOTP Key: ' + key + ' -->' + qrimage.imageSync(uri, { type: 'svg' });
+    await fs.writeFile('totp-key.svg', svg);
+    return key;
+  }
+
+  auth(secret) {
+    if (this.config.secret == '@TOTP')
+      return twofactor.verify(secret, this.totpKey);
+    return secret == this.config.secret;
+  }
+
   async listen() {
     try {
-      console.log(new Date(), 'wTerm V0.1.1');
+      console.log(new Date(), 'wTerm V0.2.0');
       console.log(new Date(), 'https://github.com/iwares/wterm');
+
+      // Load/Generate TOTP key if secret is @TOTP.
+      if (this.config.secret == '@TOTP') {
+        let key = await this.loadTOTPKey();
+        if (!key)
+          key = await this.generateTOTPKey();
+        this.totpKey = key;
+      }
+
+      // Listen
       let host = this.config.host;
       let port = this.config.port;
       await new Promise(resolve => {
@@ -99,6 +138,7 @@ module.exports = class Server {
         this.server = server;
       });
       console.log(new Date(), 'Listening ' + host + ':' + port);
+
       return true;
     } catch (e) {
       console.error(e);
