@@ -2,6 +2,7 @@ const express = require('express');
 const expressws = require('express-ws');
 const path = require('path');
 const fs = require('fs/promises');
+const net = require('net');
 const pty = require('node-pty');
 const os = require("os");
 const twofactor = require('two-factor');
@@ -33,13 +34,13 @@ module.exports = class Server {
 
       socket.on('message', (message) => {
         if (term) {
-          var matches = message.match && message.match(/^wtc:resize\((\d+),(\d+)\);$/);
+          let matches = message.match && message.match(/^wtc:resize\((\d+),(\d+)\);$/);
           if (matches)
             return term.resize(parseInt(matches[1]), parseInt(matches[2]));
           return term.write(message);
         }
 
-        var matches = message.match && message.match(/^wtc:auth\((.*)\);$/);
+        let matches = message.match && message.match(/^wtc:auth\((.*)\);$/);
         if (!matches || !this.auth(matches[1]))
           return socket.close();
 
@@ -89,6 +90,61 @@ module.exports = class Server {
       });
     });
 
+    app.ws('/tunnels/:port', (wsocket, request) => {
+      let sequence = this.nextSequence++;
+      let nsocket = undefined;
+      let ip = request.ip;
+      console.log(new Date(), 'wTerm#' + sequence + ' connection(' + ip + ') connected.');
+
+      wsocket.on('message', (message) => {
+
+        if (message instanceof Array)
+          message = Buffer.concat(message);
+        if (message instanceof ArrayBuffer)
+          message = Buffer.from(message);
+
+        if (nsocket) {
+          return nsocket.write(message);
+        }
+
+        let matches = message.match && message.match(/^wtc:auth\((.*)\);$/);
+        if (!matches || !this.auth(matches[1]))
+          return wsocket.close();
+
+        let port = parseInt(request.params.port);
+        let ports = this.config.tunnels || [];
+        if (!port || ports.indexOf(port) < 0) {
+          return wsocket.close();
+        }
+
+        console.log(new Date(), 'wTerm#' + sequence + ' tunnel connecting localhost:' + port + ' ...');
+        nsocket = net.connect(port);
+        nsocket.on('connect', () => {
+          console.log(new Date(), 'wTerm#' + sequence + ' tunnel established.');
+          wsocket.send('wtc:init();');
+        })
+        nsocket.on('error', err => {
+          console.log(new Date(), err)
+        });
+        nsocket.on('data', wsocket.send.bind(wsocket));
+        nsocket.on('close', () => {
+          console.log(new Date(), 'wTerm#' + sequence + ' tunnel closed.');
+          wsocket.close();
+        })
+      });
+
+      wsocket.on('error', (err) => {
+        console.log(new Date(), err);
+      })
+
+      wsocket.on('close', () => {
+        console.log(new Date(), 'wTerm#' + sequence + ' connection closed.');
+        if (nsocket)
+          nsocket.destroy();
+      });
+
+    });
+
   }
 
   async loadTOTPKey() {
@@ -119,7 +175,7 @@ module.exports = class Server {
 
   async listen() {
     try {
-      console.log(new Date(), 'wTerm V0.2.0');
+      console.log(new Date(), 'wTerm V0.3.0');
       console.log(new Date(), 'https://github.com/iwares/wterm');
 
       // Load/Generate TOTP key if secret is @TOTP.
